@@ -1,0 +1,17 @@
+{
+  "name": "faulrpc",
+  "version": "1.0.0",
+  "description": "Self-hosted Discord presence API — your bot, your guild, live activities over HTTP",
+  "type": "module",
+  "main": "index.mjs",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5"
+  }
+}
