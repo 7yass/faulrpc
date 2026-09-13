@@ -22,7 +22,7 @@ import { createServer } from "node:http";
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
-const PORT = Number(process.env.PORT || 4555);
+const PORT = Number(process.env.PORT || process.env.SERVER_PORT || 4555);
 
 if (!TOKEN || !GUILD_ID) {
   console.error(
