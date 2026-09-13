@@ -228,8 +228,8 @@ const server = createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`[faulrpc] http on :${PORT} — /presence?userId=<id>`);
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`[faulrpc] http on 0.0.0.0:${PORT} — /presence?userId=<id>`);
 });
 
 client.login(TOKEN);
