@@ -37,6 +37,22 @@ GET /ping
   "avatarDecoration": {        // decoration data, or null if omitted
     "skuId": "…", "asset": "…", "url": "https://cdn.discordapp.com/…"
   },
+  "badges": [                  // profile badges, in Discord's own order
+    {
+      "id": 1,                 // Discord's numeric badge id
+      "name": "Nitro",
+      "tier": "Bronze",        // tier name, or null when not tiered
+      "label": "Subscriber since 12/01/2025",
+      "url": "https://cdn.discordapp.com/assets/content/…png"
+    },
+    {
+      "id": 12,
+      "name": "Server Boosting",
+      "tier": null,
+      "label": "Boosting since 12/01/2025",
+      "url": "https://cdn.discordapp.com/badge-icons/…png"
+    }
+  ],
   "lastUpdate": 1757…
 }
 ```
@@ -64,5 +80,5 @@ Members **not in the guild** get `{ "error": "not_in_guild" }` (HTTP 404) — th
 - Needs **Node 18+**. Runs quietly — `npm start` stays in a terminal, or run it as a Windows service / PM2 / systemd unit.
 - Presence appears/updates within seconds of someone starting an app or changing status (gateway events, seeded for the whole guild on boot).
 - Public account flags and avatar decorations are force-refreshed from Discord on first profile lookup, cache successful fetches for 5 minutes (failed requests retry after 1 minute). `publicFlags: 0` means no public flags; `null` means Discord did not provide the value. A null `avatarDecoration` means no decoration data was returned.
-- `publicFlags` covers flag-backed public badges only; Nitro, boosts, quests and other profile badges are not represented by this bitfield. Discord's documented bot User object does not expose profile effects, so faulrpc does not guess or return them.
+- `badges` comes from Discord's badge directory (`GET /users/{id}/badges`), not from `publicFlags`. It includes Nitro, Server Boosting, Account Age, Quests and any newer badge Discord adds — no hardcoded badge list, no guessed tiers. Hidden and unowned entries are left out and Discord's order is preserved. Each entry maps `badge_id → id`, `name → name`, the held tier's `name → tier`, `info_label → label` and the tier's (or badge's) `simple_icon_url → url`. Badge lookups are cached for 24 hours; a failed lookup keeps the last known badges and retries after a minute.
 - `.env` holds your token and is git-ignored — never commit it.

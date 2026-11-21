@@ -8,7 +8,7 @@
 //   GET /user/<id>                 avatarUrl, status, statusColor,
 //   GET /ping                      activity { type, name, details, state,
 //                                  assets, timestamps }, customStatus,
-//                                  lastUpdate }
+//                                  badges[], lastUpdate }
 //
 // Members NOT in the guild get { "error": "not_in_guild" }.
 //
@@ -20,6 +20,7 @@ import "dotenv/config";
 import { Client, GatewayIntentBits } from "discord.js";
 import { createServer } from "node:http";
 import { createProfileRefresher, profileFieldsOf } from "./profile-data.mjs";
+import { createBadgeFetcher } from "./badges.mjs";
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
@@ -49,6 +50,13 @@ const profileRefresher = createProfileRefresher({
   fetchUser: (userId) => client.users.fetch(userId, { force: true }),
   getSnapshot: (userId) => members.get(userId),
   setSnapshot: (userId, snapshot) => members.set(userId, snapshot),
+});
+
+// Discord's badge directory (GET /users/{id}/badges) is the source for
+// badges — it carries numeric ids, names, info labels, tiers and CDN
+// icons. Cached by the fetcher for 24 hours; presence lookups stay live.
+const badgeFetcher = createBadgeFetcher({
+  fetchBadges: (userId) => client.rest.get(`/users/${userId}/badges`),
 });
 
 const STATUS_COLORS = {
@@ -178,6 +186,7 @@ client.on("guildMemberUpdate", (_oldMember, newMember) => {
 client.on("guildMemberRemove", (member) => {
   members.delete(member.id);
   profileRefresher.invalidate(member.id);
+  badgeFetcher.invalidate(member.id);
 });
 
 // ─── HTTP API ────────────────────────────────────────────────────────────────
@@ -194,16 +203,20 @@ const json = (res, status, body) => {
 
 /** Snapshot for a user, fetching from the guild on a cache miss. */
 async function snapshotFor(userId) {
-  const cached = members.get(userId);
-  if (cached) return profileRefresher.refresh(userId);
-  if (!guild) return null;
-  try {
-    const member = await guild.members.fetch(userId);
-    members.set(userId, snapshotFromMember(member));
-    return profileRefresher.refresh(userId);
-  } catch {
-    return null; // not in guild
+  let snap = members.get(userId);
+  if (!snap) {
+    if (!guild) return null;
+    try {
+      const member = await guild.members.fetch(userId);
+      snap = snapshotFromMember(member);
+      members.set(userId, snap);
+    } catch {
+      return null; // not in guild
+    }
   }
+  const fresh = (await profileRefresher.refresh(userId)) ?? snap;
+  const badges = await badgeFetcher.get(userId);
+  return { ...fresh, badges };
 }
 
 const server = createServer(async (req, res) => {
