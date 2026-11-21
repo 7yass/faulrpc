@@ -20,9 +20,14 @@ import "dotenv/config";
 import { Client, GatewayIntentBits } from "discord.js";
 import { createServer } from "node:http";
 import { createProfileRefresher, profileFieldsOf } from "./profile-data.mjs";
-import { createBadgeFetcher, badgesFromProfile } from "./badges.mjs";
+import { createBadgeFetcher, badgesFromProfile, badgesFromFlags } from "./badges.mjs";
 
 const TOKEN = process.env.DISCORD_TOKEN;
+// Discord returns 20001 "Bots cannot use this endpoint" for BOTH badge
+// routes. A user token is the only way to read the real badge directory,
+// the same way haunt.gg does it. Optional: without it we fall back to
+// public flags.
+const USER_TOKEN = process.env.DISCORD_USER_TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
 const PORT = Number(process.env.PORT || process.env.SERVER_PORT || 4555);
 
@@ -52,9 +57,9 @@ const profileRefresher = createProfileRefresher({
   setSnapshot: (userId, snapshot) => members.set(userId, snapshot),
 });
 
-const discordApi = async (path, version) => {
+const discordApi = async (path, version, userToken = false) => {
   const res = await fetch(`https://discord.com/api/v${version}${path}`, {
-    headers: { authorization: `Bot ${TOKEN}` },
+    headers: { authorization: userToken ? USER_TOKEN : `Bot ${TOKEN}` },
   });
   const body = await res.text();
   if (!res.ok) throw new Error(`HTTP ${res.status} ${body.slice(0, 200)}`);
@@ -62,17 +67,19 @@ const discordApi = async (path, version) => {
 };
 
 /**
- * Badge directory first — it's a client route, so try v9 then v10. Discord
- * documents profile access for bots but not the directory, so on refusal
- * (or an empty directory) fall back to the profile badge row, which still
- * carries the tier icons and detail lines. Errors are logged so `[]` is
- * never silently confused with "no badges".
+ * Badge directory first (v9 then v10) using a user token — Discord blocks
+ * bots on both it and the profile route with 20001. Falls back to public
+ * flags when no user token is configured or every route fails. Each
+ * failure is logged so an empty array always has a visible cause.
  */
 async function loadBadges(userId) {
+  const flagFallback = () => badgesFromFlags(members.get(userId)?.publicFlags);
+  if (!USER_TOKEN) return flagFallback();
+
   const failures = [];
   for (const version of [9, 10]) {
     try {
-      const data = await discordApi(`/users/${userId}/badges`, version);
+      const data = await discordApi(`/users/${userId}/badges`, version, true);
       const rows = Array.isArray(data) ? data : data?.badges;
       if (Array.isArray(rows) && rows.some((row) => row && row.owned !== false && row.hidden !== true)) {
         return data;
@@ -82,17 +89,25 @@ async function loadBadges(userId) {
       failures.push(`v${version}: ${err.message}`);
     }
   }
-  console.warn(`[faulrpc] badge directory for ${userId}: ${failures.join(" | ")} — using profile badges`);
+
   try {
     const profile = await discordApi(
       `/users/${userId}/profile?with_mutual_guilds=false&with_mutual_friends=false`,
-      10
+      10,
+      true
     );
-    return badgesFromProfile(profile);
+    const rows = badgesFromProfile(profile);
+    if (rows.length) {
+      console.warn(`[faulrpc] badge directory for ${userId}: ${failures.join(" | ")} — used profile badges`);
+      return rows;
+    }
+    failures.push("profile: no badges");
   } catch (err) {
-    console.warn(`[faulrpc] profile badge fallback failed for ${userId}: ${err.message}`);
-    throw err;
+    failures.push(`profile: ${err.message}`);
   }
+
+  console.warn(`[faulrpc] badge sources failed for ${userId}: ${failures.join(" | ")} — using public flags`);
+  return flagFallback();
 }
 
 // Discord's badge directory (or the profile fallback) is the source for

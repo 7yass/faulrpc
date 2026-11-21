@@ -4,6 +4,7 @@ import {
   createBadgeFetcher,
   normalizeBadge,
   badgesFromProfile,
+  badgesFromFlags,
   BADGE_CACHE_TTL_MS,
   BADGE_RETRY_INTERVAL_MS,
 } from "./badges.mjs";
@@ -140,6 +141,16 @@ test("profile fallback maps legacy ids, detail lines and tier icons", () => {
   assert.equal(early.tier, null);
   assert.equal(boost.name, "Server Boosting");
   assert.equal(boost.url, "https://cdn.discordapp.com/badge-icons/72bed924410c304dbe3d00a6e593ff59.png");
+});
+
+test("public-flag fallback builds the legacy badge row from known bits", () => {
+  const rows = badgesFromFlags((1 << 0) | (1 << 9) | (1 << 6));
+  const badges = rows.map(normalizeBadge);
+  assert.deepEqual(badges.map((badge) => badge.id), [22, 5, 11]);
+  assert.deepEqual(badges.map((badge) => badge.name), ["Discord Staff", "HypeSquad Bravery", "Early Supporter"]);
+  assert.equal(badges[2].url, "https://cdn.discordapp.com/badge-icons/7060786766c9c840eb3019e725d2b358.png");
+  assert.deepEqual(badgesFromFlags(0), []);
+  assert.deepEqual(badgesFromFlags(null), []);
 });
 
 test("skips entries without a numeric badge id", () => {

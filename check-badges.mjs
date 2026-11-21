@@ -3,12 +3,15 @@
 //   node check-badges.mjs <discordUserId>
 import "dotenv/config";
 
-const token = process.env.DISCORD_TOKEN;
+const botToken = process.env.DISCORD_TOKEN;
+const userToken = process.env.DISCORD_USER_TOKEN;
 const userId = process.argv[2];
-if (!token || !userId) {
-  console.error("usage: node check-badges.mjs <discordUserId>   (needs DISCORD_TOKEN in .env)");
+if ((!botToken && !userToken) || !userId) {
+  console.error("usage: node check-badges.mjs <discordUserId>   (needs a token in .env)");
   process.exit(1);
 }
+const auth = userToken ? userToken : `Bot ${botToken}`;
+console.log(`auth: ${userToken ? "user token" : "bot token"}`);
 
 for (const [label, url] of [
   ["badges v9", `https://discord.com/api/v9/users/${userId}/badges`],
@@ -16,7 +19,7 @@ for (const [label, url] of [
   ["profile v10", `https://discord.com/api/v10/users/${userId}/profile?with_mutual_guilds=false&with_mutual_friends=false`],
 ]) {
   try {
-    const res = await fetch(url, { headers: { authorization: `Bot ${token}` } });
+    const res = await fetch(url, { headers: { authorization: auth } });
     const text = await res.text();
     let body;
     try { body = JSON.parse(text); } catch { body = text; }

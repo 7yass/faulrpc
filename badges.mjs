@@ -127,6 +127,36 @@ export function badgesFromProfile(profile) {
   return rows.map(profileBadgeToDirectory).filter(Boolean);
 }
 
+// Last-resort source when Discord refuses both badge routes: the public
+// flag bitfield plus Discord's own badge-icons. Covers the legacy row in
+// the profile (Early Supporter, HypeSquad, Bug Hunter, …), not the new
+// directory-only badges (Nitro tenure, Account Age, Quests, …).
+const FLAG_BADGES = [
+  { bit: 1 << 0, id: 22, name: "Discord Staff", icon: "5e74e9b61934fc1f67c65515d1f7e60d" },
+  { bit: 1 << 1, id: 2, name: "Partnered Server Owner", icon: "3f9748e53446a137a052f3454e2de41e" },
+  { bit: 1 << 2, id: 4, name: "HypeSquad Events", icon: "bf01d1073931f921909045f3a39fd264" },
+  { bit: 1 << 3, id: 8, name: "Bug Hunter", icon: "2717692c7dca7289b35297368a940dd0" },
+  { bit: 1 << 6, id: 5, name: "HypeSquad Bravery", icon: "8a88d63823d8a71cd5e390baa45efa02" },
+  { bit: 1 << 7, id: 6, name: "HypeSquad Brilliance", icon: "011940fd013da3f7fb926e4a1cd2e618" },
+  { bit: 1 << 8, id: 7, name: "HypeSquad Balance", icon: "3aa41de486fa12454c3761e8e223442e" },
+  { bit: 1 << 9, id: 11, name: "Early Supporter", icon: "7060786766c9c840eb3019e725d2b358" },
+  { bit: 1 << 14, id: 9, name: "Bug Hunter", icon: "848f79194d4be5ff5f81505cbd0ce1e6" },
+  { bit: 1 << 17, id: 10, name: "Early Verified Bot Developer", icon: "6df5892e0f35b051f8b61eace34f4967" },
+  { bit: 1 << 18, id: 3, name: "Moderator Programs Alumni", icon: "fee1624003e2fee35cb398e125dc479b" },
+  { bit: 1 << 22, id: 23, name: "Active Developer", icon: "6bdc42827a38498929a4920da12695d9" },
+];
+
+/** Build badge rows from a public-flags bitfield (bot-accessible). */
+export function badgesFromFlags(flags) {
+  if (typeof flags !== "number" || !Number.isFinite(flags)) return [];
+  return FLAG_BADGES.filter((entry) => (flags & entry.bit) !== 0).map((entry) => ({
+    badge_id: entry.id,
+    name: entry.name,
+    simple_icon_url: `https://cdn.discordapp.com/badge-icons/${entry.icon}.png`,
+    owned: true,
+  }));
+}
+
 const badgeIdOf = (value) => {
   if (typeof value === "number" && Number.isSafeInteger(value)) return value;
   if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
