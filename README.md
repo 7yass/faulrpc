@@ -33,6 +33,10 @@ GET /ping
     "timestamps": { "start": 1757…, "end": null }
   },
   "customStatus": { "text": "…", "emoji": "…", "emojiUrl": "…" },  // or null
+  "publicFlags": 64,           // public account-flag bitfield; null if unavailable
+  "avatarDecoration": {        // decoration data, or null if omitted
+    "skuId": "…", "asset": "…", "url": "https://cdn.discordapp.com/…"
+  },
   "lastUpdate": 1757…
 }
 ```
@@ -59,4 +63,6 @@ Members **not in the guild** get `{ "error": "not_in_guild" }` (HTTP 404) — th
 
 - Needs **Node 18+**. Runs quietly — `npm start` stays in a terminal, or run it as a Windows service / PM2 / systemd unit.
 - Presence appears/updates within seconds of someone starting an app or changing status (gateway events, seeded for the whole guild on boot).
+- Public account flags and avatar decorations are force-refreshed from Discord on first profile lookup, cache successful fetches for 5 minutes (failed requests retry after 1 minute). `publicFlags: 0` means no public flags; `null` means Discord did not provide the value. A null `avatarDecoration` means no decoration data was returned.
+- `publicFlags` covers flag-backed public badges only; Nitro, boosts, quests and other profile badges are not represented by this bitfield. Discord's documented bot User object does not expose profile effects, so faulrpc does not guess or return them.
 - `.env` holds your token and is git-ignored — never commit it.

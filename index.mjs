@@ -19,6 +19,7 @@
 import "dotenv/config";
 import { Client, GatewayIntentBits } from "discord.js";
 import { createServer } from "node:http";
+import { createProfileRefresher, profileFieldsOf } from "./profile-data.mjs";
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
@@ -42,6 +43,14 @@ const client = new Client({
 // userId → presence snapshot, seeded for the whole guild on boot
 const members = new Map();
 
+// Refresh account-level fields from Discord on first lookup; after a
+// successful fetch, cache them for 5 minutes and retry failures after 1 minute.
+const profileRefresher = createProfileRefresher({
+  fetchUser: (userId) => client.users.fetch(userId, { force: true }),
+  getSnapshot: (userId) => members.get(userId),
+  setSnapshot: (userId, snapshot) => members.set(userId, snapshot),
+});
+
 const STATUS_COLORS = {
   online: "#23a55a",
   idle: "#f0b232",
@@ -59,10 +68,6 @@ const ACTIVITY_NAMES = [
   null,
   "Competing in",
 ];
-
-const avatarUrlOf = (user) =>
-  user.avatarURL({ size: 128 }) ??
-  user.displayAvatarURL({ forceStatic: true, size: 128 });
 
 const emojiUrlOf = (emoji) =>
   emoji?.id
@@ -110,9 +115,7 @@ function snapshotOf(user, presence) {
   const status = presence?.status ?? "offline";
   return {
     userId: user.id,
-    username: user.username,
-    displayName: user.displayName || user.globalName || user.username,
-    avatarUrl: avatarUrlOf(user),
+    ...profileFieldsOf(user),
     status,
     statusColor: STATUS_COLORS[status] ?? STATUS_COLORS.offline,
     activity: activityOf(presence),
@@ -174,6 +177,7 @@ client.on("guildMemberUpdate", (_oldMember, newMember) => {
 
 client.on("guildMemberRemove", (member) => {
   members.delete(member.id);
+  profileRefresher.invalidate(member.id);
 });
 
 // ─── HTTP API ────────────────────────────────────────────────────────────────
@@ -191,13 +195,12 @@ const json = (res, status, body) => {
 /** Snapshot for a user, fetching from the guild on a cache miss. */
 async function snapshotFor(userId) {
   const cached = members.get(userId);
-  if (cached) return cached;
+  if (cached) return profileRefresher.refresh(userId);
   if (!guild) return null;
   try {
     const member = await guild.members.fetch(userId);
-    const snap = snapshotFromMember(member);
-    members.set(userId, snap);
-    return snap;
+    members.set(userId, snapshotFromMember(member));
+    return profileRefresher.refresh(userId);
   } catch {
     return null; // not in guild
   }
