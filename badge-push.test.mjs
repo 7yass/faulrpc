@@ -14,6 +14,7 @@ test("push store survives a restart and keeps the sync timestamp", async () => {
     const first = createBadgePushStore({ file, now: () => 1234 });
     await first.put("1270782781605154922", badges);
     assert.deepEqual(first.get("1270782781605154922"), { badges, at: 1234 });
+    assert.deepEqual(first.list(), [{ userId: "1270782781605154922", at: 1234, count: 1 }]);
 
     const restarted = createBadgePushStore({ file, now: () => 9999 });
     await restarted.load();

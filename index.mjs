@@ -336,7 +336,16 @@ const server = createServer(async (req, res) => {
       return;
     }
     if (url.pathname === "/ping") {
-      json(res, 200, { ok: true, bot: client.user?.tag ?? null, tracked: members.size });
+      json(res, 200, {
+        ok: true,
+        bot: client.user?.tag ?? null,
+        tracked: members.size,
+        badgePushes: pushStore.list().map((entry) => ({
+          userId: entry.userId,
+          at: entry.at,
+          count: entry.count,
+        })),
+      });
       return;
     }
     let userId = null;

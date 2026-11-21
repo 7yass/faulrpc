@@ -42,5 +42,13 @@ export function createBadgePushStore({ file, now = Date.now, onError = console.e
     return writes.then(() => entry);
   }
 
-  return { load, get, put };
+  function list() {
+    return [...entries].map(([userId, value]) => ({
+      userId,
+      at: value.at,
+      count: value.badges.length,
+    }));
+  }
+
+  return { load, get, put, list };
 }

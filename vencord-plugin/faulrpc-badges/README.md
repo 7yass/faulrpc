@@ -1,23 +1,30 @@
-# faulrpc badge bridge (Vencord plugin)
+# faulrpc badge bridge (Vencord user plugin)
 
 Reads Discord's badge directory from inside your logged-in Discord client and pushes it to faulrpc. This is the same data Haunt reads, and it does not require pasting a user token anywhere — Vencord's `RestAPI` uses the live session.
 
 ## Install
 
-1. Copy this folder into Vencord's user plugins directory:
-   - Vencord Desktop: `%appdata%\Vencord\userplugins\faulrpc-badges\`
-   - `vencord/userplugins/faulrpc-badges/` for a source install.
-2. Fully restart Discord (required for `native.ts` to load).
-3. In Vencord settings → Plugins → **faulrpc badge bridge**, enable it and set:
-   - **faulrpc base URL** — e.g. `https://your-faulrpc-host` or `http://localhost:4555`
-   - **BADGE_PUSH_KEY** — the same value as `BADGE_PUSH_KEY` in the bot's `.env`
-   - **Discord user id** — default is `1270782781605154922`
+Userplugins only load from a **Vencord source install** — the standalone installer build cannot load them. If you have the installer build, switch to a source install first (`git clone`, `pnpm build`, `pnpm inject`).
+
+1. Copy this folder into the Vencord source tree as:
+   ```
+   <vencord>/src/userplugins/faulrpcBadges/
+   ```
+   (rename from `faulrpc-badges` to camelCase — some Vencord versions reject hyphenated plugin folders).
+2. Rebuild Vencord from its root: `pnpm build`.
+3. Fully restart Discord.
+4. In Vencord settings → Plugins → **faulrpc badge bridge**, enable it and set:
+   - **faulrpc base URL** — default `https://faul.wisp.uno`
+   - **BADGE_PUSH_KEY** — same value as `BADGE_PUSH_KEY` in the bot's `.env`
+   - **Discord user id** — default `1270782781605154922`
    - **sync interval** — default 60 minutes
 
-The plugin syncs once on start and then on the interval. Logs appear in Discord's console under `FaulrpcBadges`.
+If `native.ts` was not compiled (web build, or no source rebuild), the plugin automatically falls back to a normal `fetch` POST — the bot allows the required CORS headers.
 
-## Behavior
+## Verify
 
-It fetches `GET /users/{id}/badges` through `RestAPI` (authenticated as your client, so no `20001`) and POSTs the raw catalog to faulrpc's `POST /badges`. faulrpc normalizes it with the same `normalizeBadge()` used for every other source, caches it, and writes it to `data/badges.json`. When Discord closes, the last pushed catalog keeps being served — no gap in `/presence` badges. A new push invalidates the bot's 24h badge cache immediately.
+- Discord console: `FaulrpcBadges starting ...` then `synced N badge entry/entries`. A missing key or empty catalog is logged as a warning.
+- `https://faul.wisp.uno/ping` → `badgePushes` contains an entry for your user id with `count > 0` and a recent `at`.
+- `GET /presence?userId=<id>` → populated `badges[]`.
 
-Data is identical to the directory path: numeric `id`, `name`, `tier` (held tier's name), `label` (`info_label`) and the tier's CDN icon as `url`. New badges and new tiers appear without a plugin change because the raw catalog is forwarded verbatim.
+The plugin syncs once on start and then on the interval. It pushes the raw catalog verbatim, so new badges and tiers appear without a plugin change. faulrpc persists the last push to `data/badges.json` (30-day validity by default) and invalidates its 24h badge cache on every push, so badges keep rendering while Discord is closed.

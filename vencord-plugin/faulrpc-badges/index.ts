@@ -13,16 +13,15 @@ import { Logger } from "@utils/Logger";
 import definePlugin, { OptionType, PluginNative } from "@utils/types";
 import { RestAPI } from "@webpack/common";
 
-const Native = VencordNative.pluginHelpers.FaulrpcBadges as PluginNative<
-  typeof import("./native")
->;
+type NativeHelpers = PluginNative<typeof import("./native")>;
+const Native = (VencordNative as any)?.pluginHelpers?.FaulrpcBadges as NativeHelpers | undefined;
 const log = new Logger("FaulrpcBadges", "#a970ff");
 
 const settings = definePluginSettings({
   botUrl: {
     type: OptionType.STRING,
     description: "faulrpc base URL (no trailing slash needed)",
-    default: "http://localhost:4555",
+    default: "https://faul.wisp.uno",
   },
   pushKey: {
     type: OptionType.STRING,
@@ -44,9 +43,30 @@ const settings = definePluginSettings({
 let timer: ReturnType<typeof setInterval> | null = null;
 let syncing = false;
 
+async function push(botUrl: string, pushKey: string, userId: string, badges: unknown[]) {
+  if (Native?.pushBadges) return Native.pushBadges(botUrl, pushKey, userId, badges);
+
+  // Renderer fallback: works on installs where the native helper is not
+  // compiled (web builds, or userplugins loaded without a source rebuild).
+  const res = await fetch(`${botUrl.replace(/\/+$/, "")}/badges`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-badge-key": pushKey },
+    body: JSON.stringify({ userId, badges }),
+  });
+  if (!res.ok) throw new Error(`faulrpc responded ${res.status}`);
+  return res.text();
+}
+
 async function sync() {
   const { botUrl, pushKey, userId, intervalMinutes } = settings.store;
-  if (!pushKey || !userId) return;
+  if (!pushKey) {
+    log.warn("no BADGE_PUSH_KEY set in plugin settings — skipping sync");
+    return;
+  }
+  if (!/^\d{17,19}$/.test(userId)) {
+    log.warn(`invalid Discord user id: ${userId}`);
+    return;
+  }
   if (syncing) return;
   syncing = true;
   try {
@@ -54,7 +74,11 @@ async function sync() {
     const raw = res?.body;
     const rows: unknown[] = Array.isArray(raw) ? raw : raw?.badges;
     if (!Array.isArray(rows)) throw new Error("unexpected badge response");
-    await Native.pushBadges(botUrl, pushKey, userId, rows);
+    if (rows.length === 0) {
+      log.warn("Discord returned no badge entries — nothing to push");
+      return;
+    }
+    await push(botUrl, pushKey, userId, rows);
     log.info(`synced ${rows.length} badge entry/entries (next in ${intervalMinutes}m)`);
   } catch (err) {
     log.error("sync failed", err);
@@ -70,6 +94,7 @@ export default definePlugin({
   settings,
 
   async start() {
+    log.info(`starting (native helper: ${Native ? "yes" : "no — using fetch fallback"})`);
     await sync();
     timer = setInterval(sync, Math.max(1, settings.store.intervalMinutes) * 60_000);
   },
