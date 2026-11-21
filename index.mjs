@@ -8,7 +8,8 @@
 //   GET /user/<id>                 avatarUrl, status, statusColor,
 //   GET /ping                      activity { type, name, details, state,
 //                                  assets, timestamps }, customStatus,
-//                                  badges[], lastUpdate }
+//   POST /badges                   badges[], lastUpdate }
+//                                  (Vencord plugin push; x-badge-key auth)
 //
 // Members NOT in the guild get { "error": "not_in_guild" }.
 //
@@ -21,6 +22,7 @@ import { Client, GatewayIntentBits } from "discord.js";
 import { createServer } from "node:http";
 import { createProfileRefresher, profileFieldsOf } from "./profile-data.mjs";
 import { createBadgeFetcher, badgesFromProfile, badgesFromFlags } from "./badges.mjs";
+import { createBadgePushStore } from "./badge-push.mjs";
 
 const TOKEN = process.env.DISCORD_TOKEN;
 // Discord returns 20001 "Bots cannot use this endpoint" for BOTH badge
@@ -28,6 +30,11 @@ const TOKEN = process.env.DISCORD_TOKEN;
 // the same way haunt.gg does it. Optional: without it we fall back to
 // public flags.
 const USER_TOKEN = process.env.DISCORD_USER_TOKEN;
+// A Vencord plugin can read the directory with its own live client session
+// and POST it here. That is the primary source when configured.
+const BADGE_PUSH_KEY = process.env.BADGE_PUSH_KEY;
+const PUSH_STORE_FILE = process.env.BADGE_STORE_FILE || "data/badges.json";
+const PUSH_MAX_AGE_MS = Number(process.env.BADGE_PUSH_MAX_AGE_MS || 30 * 24 * 60 * 60 * 1000);
 const GUILD_ID = process.env.GUILD_ID;
 const PORT = Number(process.env.PORT || process.env.SERVER_PORT || 4555);
 
@@ -72,8 +79,16 @@ const discordApi = async (path, version, userToken = false) => {
  * flags when no user token is configured or every route fails. Each
  * failure is logged so an empty array always has a visible cause.
  */
+const pushStore = createBadgePushStore({ file: PUSH_STORE_FILE });
+await pushStore.load();
+
 async function loadBadges(userId) {
-  const flagFallback = () => badgesFromFlags(members.get(userId)?.publicFlags);
+  const pushed = pushStore.get(userId);
+  if (pushed) {
+    if (Date.now() - pushed.at < PUSH_MAX_AGE_MS) return pushed.badges;
+    console.warn(`[faulrpc] pushed badges for ${userId} are stale — trying live sources`);
+  }
+  const flagFallback = () => pushed?.badges ?? badgesFromFlags(members.get(userId)?.publicFlags);
   if (!USER_TOKEN) return flagFallback();
 
   const failures = [];
@@ -252,6 +267,8 @@ const json = (res, status, body) => {
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "access-control-allow-origin": "*",
+    "access-control-allow-headers": "authorization, content-type, x-badge-key",
+    "access-control-allow-methods": "GET, POST, OPTIONS",
     "content-length": Buffer.byteLength(text),
   });
   res.end(text);
@@ -275,9 +292,49 @@ async function snapshotFor(userId) {
   return { ...fresh, badges };
 }
 
+const readJson = (req) =>
+  new Promise((resolve, reject) => {
+    let text = "";
+    req.on("data", (chunk) => {
+      text += chunk;
+      if (text.length > 1_000_000) reject(new Error("body too large"));
+    });
+    req.on("end", () => {
+      try { resolve(JSON.parse(text)); } catch { reject(new Error("invalid json")); }
+    });
+    req.on("error", reject);
+  });
+
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? "/", "http://localhost");
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, {
+        "access-control-allow-origin": "*",
+        "access-control-allow-headers": "authorization, content-type, x-badge-key",
+        "access-control-allow-methods": "GET, POST, OPTIONS",
+      });
+      res.end();
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/badges") {
+      if (!BADGE_PUSH_KEY || req.headers["x-badge-key"] !== BADGE_PUSH_KEY) {
+        json(res, 401, { error: "unauthorized" });
+        return;
+      }
+      const body = await readJson(req);
+      const userId = String(body?.userId ?? "");
+      const badges = body?.badges;
+      if (!/^\d{17,19}$/.test(userId) || !Array.isArray(badges) || badges.length > 200) {
+        json(res, 400, { error: "invalid_payload" });
+        return;
+      }
+      pushStore.put(userId, badges);
+      badgeFetcher.invalidate(userId);
+      console.log(`[faulrpc] received ${badges.length} badge entry/entries for ${userId}`);
+      json(res, 200, { ok: true, count: badges.length });
+      return;
+    }
     if (url.pathname === "/ping") {
       json(res, 200, { ok: true, bot: client.user?.tag ?? null, tracked: members.size });
       return;

@@ -170,6 +170,22 @@ const badgeIdOf = (value) => {
  * and icon have to come from that entry.
  */
 export function normalizeBadge(raw) {
+  // Already in the output shape (e.g. a plugin-pushed cached snapshot).
+  if (
+    raw &&
+    Number.isSafeInteger(raw.id) &&
+    typeof raw.name === "string" &&
+    "url" in raw
+  ) {
+    return {
+      id: raw.id,
+      name: raw.name,
+      tier: textOrNull(raw.tier),
+      label: textOrNull(raw.label),
+      url: textOrNull(raw.url),
+    };
+  }
+
   const id = badgeIdOf(raw?.badge_id);
   if (id === null) return null;
 

@@ -8,6 +8,7 @@ Self-hosted Discord presence API — **Node.js (`discord.js`), not Python**. A D
 GET /presence?userId=<discord user id>
 GET /user/<discord user id>
 GET /ping
+POST /badges            # Vencord badge bridge (x-badge-key: <BADGE_PUSH_KEY>)
 ```
 
 ```jsonc
@@ -81,5 +82,8 @@ Members **not in the guild** get `{ "error": "not_in_guild" }` (HTTP 404) — th
 - Presence appears/updates within seconds of someone starting an app or changing status (gateway events, seeded for the whole guild on boot).
 - Public account flags and avatar decorations are force-refreshed from Discord on first profile lookup, cache successful fetches for 5 minutes (failed requests retry after 1 minute). `publicFlags: 0` means no public flags; `null` means Discord did not provide the value. A null `avatarDecoration` means no decoration data was returned.
 - `badges` comes from Discord's badge directory (`GET /users/{id}/badges`, tried on v9 then v10), not from `publicFlags`. It includes Nitro, Server Boosting, Account Age, Quests and any newer badge Discord adds — no hardcoded badge list, no guessed tiers. Hidden and unowned entries are left out and Discord's order is preserved. Each entry maps `badge_id → id`, `name → name`, the held tier's `name → tier`, `info_label → label` and the tier's raster/simple icon `→ url`. Badge lookups are cached for 24 hours; a failed lookup keeps the last known badges and retries after a minute.
-- Discord returns `403 {"code":20001,"message":"Bots cannot use this endpoint"}` for both `/users/{id}/badges` and `/users/{id}/profile`. A bot token therefore cannot read the badge directory at all. Set `DISCORD_USER_TOKEN` in `.env` to a user-account token to get the real directory (Nitro tiers, Account Age, Quests, new badges). Without it, `badges` falls back to public-flag badges only (Early Supporter, HypeSquad, Bug Hunter, Staff, …); the new directory-only badges cannot be seen by a bot. Every source failure is logged. Run `npm run check:badges -- <discordUserId>` to print raw statuses/bodies for the badge routes using whichever token is configured.
+- Discord returns `403 {"code":20001,"message":"Bots cannot use this endpoint"}` for both `/users/{id}/badges` and `/users/{id}/profile`, so a bot token can never read the badge directory. There are two supported ways around that:
+  - **Vencord bridge (recommended):** install `vencord-plugin/faulrpc-badges/`. It reads the directory with your logged-in client's session and POSTs the raw catalog to `POST /badges`, authenticated with `BADGE_PUSH_KEY`. faulrpc persists the last push to `data/badges.json` (30-day validity by default), so badges keep rendering while Discord is closed. New pushes invalidate the 24h badge cache immediately.
+  - `DISCORD_USER_TOKEN` in `.env` — a user token, used directly for the directory/profile routes. Works, but rotates on login.
+- With neither source, `badges` falls back to public-flag badges only (Early Supporter, HypeSquad, Bug Hunter, Staff, …); the new directory-only badges cannot be seen by a bot. Every source failure is logged. Run `npm run check:badges -- <discordUserId>` to print raw statuses/bodies for the badge routes using whichever token is configured.
 - `.env` holds your token and is git-ignored — never commit it.
