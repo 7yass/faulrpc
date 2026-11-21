@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   createBadgeFetcher,
   normalizeBadge,
+  badgesFromProfile,
   BADGE_CACHE_TTL_MS,
   BADGE_RETRY_INTERVAL_MS,
 } from "./badges.mjs";
@@ -77,6 +78,17 @@ test("a tiered badge uses the held tier's icon, not the badge icon or first tier
   assert.equal(normalizeBadge(withoutSimple).url, "https://cdn.discordapp.com/assets/content/stromatolite-large.png");
 });
 
+test("prefers a raster icon over Discord's SVG simple icon", () => {
+  const out = normalizeBadge({
+    badge_id: 18,
+    name: "Account Age",
+    owned: true,
+    simple_icon_url: "https://cdn.discordapp.com/assets/badges/account-age.svg",
+    simple_icon_raster_url: "https://cdn.discordapp.com/assets/badges/account-age.png",
+  });
+  assert.equal(out.url, "https://cdn.discordapp.com/assets/badges/account-age.png");
+});
+
 test("maps an untiered badge with a null tier and its own icon", () => {
   assert.deepEqual(normalizeBadge(boosting), {
     id: 12,
@@ -102,6 +114,32 @@ test("passes through badges Discord adds in the future", () => {
     label: "5 years, 2 months",
     url: "https://cdn.discordapp.com/badge-icons/new.png",
   });
+});
+
+test("profile fallback maps legacy ids, detail lines and tier icons", () => {
+  const profile = {
+    badges: [
+      { id: "premium_tenure_6_month_v2", description: "Subscriber since 12/01/2025", icon: "abc123" },
+      { id: "early_supporter", description: "Early Supporter", icon: "7060786766c9c840eb3019e725d2b358" },
+      { id: "guild_booster_lvl3", description: "Boosting since 12/01/2025", icon: "72bed924410c304dbe3d00a6e593ff59" },
+      { id: "totally_new_badge", description: "Brand new", icon: "new" },
+    ],
+  };
+
+  const rows = badgesFromProfile(profile);
+  assert.deepEqual(rows.map((row) => row.badge_id), [1, 11, 12]);
+  const [premium, early, boost] = rows.map(normalizeBadge);
+  assert.deepEqual(premium, {
+    id: 1,
+    name: "Nitro",
+    tier: "Gold",
+    label: "Subscriber since 12/01/2025",
+    url: "https://cdn.discordapp.com/badge-icons/abc123.png",
+  });
+  assert.equal(early.name, "Early Supporter");
+  assert.equal(early.tier, null);
+  assert.equal(boost.name, "Server Boosting");
+  assert.equal(boost.url, "https://cdn.discordapp.com/badge-icons/72bed924410c304dbe3d00a6e593ff59.png");
 });
 
 test("skips entries without a numeric badge id", () => {

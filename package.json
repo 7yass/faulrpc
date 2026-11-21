@@ -6,7 +6,8 @@
   "main": "index.mjs",
   "scripts": {
     "start": "node index.mjs",
-    "test": "node --test"
+    "test": "node --test",
+    "check:badges": "node check-badges.mjs"
   },
   "engines": {
     "node": ">=18"

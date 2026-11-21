@@ -15,6 +15,118 @@ export const BADGE_RETRY_INTERVAL_MS = 60 * 1000;
 const textOrNull = (value) =>
   typeof value === "string" && value.length > 0 ? value : null;
 
+// Discord's profile badges use string ids; the badge directory uses these
+// numeric ids. This is the client's own mapping — only used by the profile
+// fallback, never by the primary directory path.
+const PROFILE_BADGE_NAMES = [
+  "premium_tenure",
+  "partner",
+  "certified_moderator",
+  "hypesquad",
+  "hypesquad_house_1",
+  "hypesquad_house_2",
+  "hypesquad_house_3",
+  "bug_hunter_level_1",
+  "bug_hunter_level_2",
+  "verified_developer",
+  "early_supporter",
+  "guild_booster",
+  "legacy_username",
+  "quest_completed",
+  "april_fools_2026",
+  "orb_profile",
+  "gifting",
+  "account_age",
+  "streaming",
+  "game_time",
+  "game_variety",
+  "staff",
+];
+
+const BADGE_NAMES = {
+  1: "Nitro",
+  2: "Partnered Server Owner",
+  3: "Moderator Programs Alumni",
+  4: "HypeSquad Events",
+  5: "HypeSquad Bravery",
+  6: "HypeSquad Brilliance",
+  7: "HypeSquad Balance",
+  8: "Bug Hunter",
+  9: "Bug Hunter",
+  10: "Early Verified Bot Developer",
+  11: "Early Supporter",
+  12: "Server Boosting",
+  13: "Legacy Username",
+  14: "Discord Quests",
+  15: "Last Meadow Online",
+  16: "Orbs",
+  17: "Gifting",
+  18: "Account Age",
+  19: "Streaming",
+  20: "Game Time",
+  21: "Game Variety",
+  22: "Discord Staff",
+};
+
+const NITRO_TIERS = {
+  1: "Bronze",
+  2: "Bronze",
+  3: "Silver",
+  6: "Gold",
+  12: "Platinum",
+  24: "Diamond",
+  36: "Emerald",
+  60: "Ruby",
+  72: "Opal",
+};
+
+const badgeNumber = (profileId) => {
+  if (typeof profileId !== "string" || profileId.length === 0) return null;
+  if (["staff", "staff_hidden", "staff_personal"].includes(profileId)) return 22;
+  if (profileId === "premium" || profileId.startsWith("premium_tenure_")) return 1;
+  if (profileId === "orb_profile_badge") return 16;
+  if (profileId.startsWith("guild_booster_lvl")) return 12;
+  const index = PROFILE_BADGE_NAMES.indexOf(profileId);
+  return index === -1 ? null : index + 1;
+};
+
+/**
+ * Convert a badge from the bot-accessible GET /users/{id}/profile response
+ * into the directory's wire shape. Profile badges carry the tier-specific
+ * icon hash and Discord's detail line, so the fallback still produces the
+ * same { id, name, tier, label, url } output.
+ */
+export function profileBadgeToDirectory(raw) {
+  const id = badgeNumber(raw?.id);
+  if (id === null) return null;
+
+  const hash = textOrNull(raw.icon) ?? textOrNull(raw.art);
+  const url = hash
+    ? /^https?:\/\//.test(hash)
+      ? hash
+      : `https://cdn.discordapp.com/badge-icons/${hash}.png`
+    : null;
+
+  let tier = null;
+  const months = /premium_tenure_(\d+)_month/.exec(raw.id ?? "");
+  if (months) tier = NITRO_TIERS[Number(months[1])] ?? null;
+
+  return {
+    badge_id: id,
+    name: BADGE_NAMES[id] ?? textOrNull(raw.name) ?? "",
+    info_label: textOrNull(raw.description),
+    simple_icon_url: url,
+    tier_name: tier,
+    owned: true,
+  };
+}
+
+/** Pull the badge list out of a profile response. */
+export function badgesFromProfile(profile) {
+  const rows = Array.isArray(profile?.badges) ? profile.badges : [];
+  return rows.map(profileBadgeToDirectory).filter(Boolean);
+}
+
 const badgeIdOf = (value) => {
   if (typeof value === "number" && Number.isSafeInteger(value)) return value;
   if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
@@ -40,8 +152,10 @@ export function normalizeBadge(raw) {
       null;
 
   const url =
+    textOrNull(tier?.simple_icon_raster_url) ??
     textOrNull(tier?.simple_icon_url) ??
     textOrNull(tier?.complex_icon_static_url) ??
+    textOrNull(raw.simple_icon_raster_url) ??
     textOrNull(raw.simple_icon_url) ??
     textOrNull(raw.complex_icon_static_url) ??
     null;
@@ -49,7 +163,7 @@ export function normalizeBadge(raw) {
   return {
     id,
     name: textOrNull(raw.name) ?? textOrNull(raw.description) ?? "",
-    tier: textOrNull(tier?.name),
+    tier: textOrNull(tier?.name) ?? textOrNull(raw.tier_name),
     label: textOrNull(raw.info_label),
     url,
   };

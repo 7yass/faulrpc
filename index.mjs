@@ -20,7 +20,7 @@ import "dotenv/config";
 import { Client, GatewayIntentBits } from "discord.js";
 import { createServer } from "node:http";
 import { createProfileRefresher, profileFieldsOf } from "./profile-data.mjs";
-import { createBadgeFetcher } from "./badges.mjs";
+import { createBadgeFetcher, badgesFromProfile } from "./badges.mjs";
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
@@ -52,12 +52,53 @@ const profileRefresher = createProfileRefresher({
   setSnapshot: (userId, snapshot) => members.set(userId, snapshot),
 });
 
-// Discord's badge directory (GET /users/{id}/badges) is the source for
-// badges — it carries numeric ids, names, info labels, tiers and CDN
-// icons. Cached by the fetcher for 24 hours; presence lookups stay live.
-const badgeFetcher = createBadgeFetcher({
-  fetchBadges: (userId) => client.rest.get(`/users/${userId}/badges`),
-});
+const discordApi = async (path, version) => {
+  const res = await fetch(`https://discord.com/api/v${version}${path}`, {
+    headers: { authorization: `Bot ${TOKEN}` },
+  });
+  const body = await res.text();
+  if (!res.ok) throw new Error(`HTTP ${res.status} ${body.slice(0, 200)}`);
+  return body ? JSON.parse(body) : null;
+};
+
+/**
+ * Badge directory first — it's a client route, so try v9 then v10. Discord
+ * documents profile access for bots but not the directory, so on refusal
+ * (or an empty directory) fall back to the profile badge row, which still
+ * carries the tier icons and detail lines. Errors are logged so `[]` is
+ * never silently confused with "no badges".
+ */
+async function loadBadges(userId) {
+  const failures = [];
+  for (const version of [9, 10]) {
+    try {
+      const data = await discordApi(`/users/${userId}/badges`, version);
+      const rows = Array.isArray(data) ? data : data?.badges;
+      if (Array.isArray(rows) && rows.some((row) => row && row.owned !== false && row.hidden !== true)) {
+        return data;
+      }
+      failures.push(`v${version}: no owned badges`);
+    } catch (err) {
+      failures.push(`v${version}: ${err.message}`);
+    }
+  }
+  console.warn(`[faulrpc] badge directory for ${userId}: ${failures.join(" | ")} — using profile badges`);
+  try {
+    const profile = await discordApi(
+      `/users/${userId}/profile?with_mutual_guilds=false&with_mutual_friends=false`,
+      10
+    );
+    return badgesFromProfile(profile);
+  } catch (err) {
+    console.warn(`[faulrpc] profile badge fallback failed for ${userId}: ${err.message}`);
+    throw err;
+  }
+}
+
+// Discord's badge directory (or the profile fallback) is the source for
+// badges — numeric ids, names, info labels, tiers and CDN icons. Cached by
+// the fetcher for 24 hours; presence lookups stay live.
+const badgeFetcher = createBadgeFetcher({ fetchBadges: loadBadges });
 
 const STATUS_COLORS = {
   online: "#23a55a",
