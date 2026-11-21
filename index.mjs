@@ -344,6 +344,7 @@ const server = createServer(async (req, res) => {
           userId: entry.userId,
           at: entry.at,
           count: entry.count,
+          served: entry.served,
         })),
       });
       return;

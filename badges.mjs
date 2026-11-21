@@ -215,6 +215,15 @@ export function normalizeBadge(raw) {
   };
 }
 
+/** Rows that actually make it into a presence response. */
+export function servedBadges(rows) {
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .filter((row) => row && row.owned !== false && row.hidden !== true)
+    .map(normalizeBadge)
+    .filter(Boolean);
+}
+
 /**
  * Cache badge-directory lookups per user. Successful fetches live for
  * 24 hours (matching Discord's own catalog staleness); failures keep the
@@ -248,10 +257,7 @@ export function createBadgeFetcher({
           : Array.isArray(data?.badges)
             ? data.badges
             : [];
-        const badges = rows
-          .filter((row) => row && row.owned !== false && row.hidden !== true)
-          .map(normalizeBadge)
-          .filter(Boolean);
+        const badges = servedBadges(rows);
         cached.set(userId, { badges, at: now() });
         retryAfter.delete(userId);
         return badges;

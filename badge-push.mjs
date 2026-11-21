@@ -3,6 +3,7 @@
 // served until the plugin pushes again.
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { servedBadges } from "./badges.mjs";
 
 export function createBadgePushStore({ file, now = Date.now, onError = console.error }) {
   const entries = new Map();
@@ -47,6 +48,7 @@ export function createBadgePushStore({ file, now = Date.now, onError = console.e
       userId,
       at: value.at,
       count: value.badges.length,
+      served: servedBadges(value.badges).length,
     }));
   }
 
